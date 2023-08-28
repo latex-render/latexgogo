@@ -120,7 +120,13 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 		}
 		v.nodes = append(v.nodes, h.Handle(v.p, n, v.state, v.math))
 		return nil
-
+	// Temperarily use macro until Sup is fully supported.
+     	case *ast.Sup:
+             h := v.p.handler(`\pow`)
+             if h == nil {
+                 panic("no handler for symbol")
+             }
+             v.nodes = append(v.nodes, h.Handle(v.p, n, v.state, true))
 	case nil:
 		return v
 
@@ -164,6 +170,8 @@ func (p *parser) handler(name string) handler {
 		return handlerFunc(handleSqrt)
 	case `\overline`:
 		return handlerFunc(handleOverline)
+	case `\pow`:
+         	return handlerFunc(handleSup)
 	}
 	_, ok := p.macros[name]
 	if ok {
@@ -180,6 +188,73 @@ func (p *parser) init() {
 		p.macros[k] = v
 	}
 }
+
+func handleSup(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+ var (
+         macro = node.(*ast.Macro)
+         exponent  tex.Node
+         body  *tex.HList
+     )
+     switch len(macro.Args) {
+     case 2:
+         body = p.handleNode(
+             ast.List(macro.Args[0].(*ast.Arg).List),
+             state, math,
+         ).(*tex.HList)
+         exponent = p.handleNode(
+             ast.List(macro.Args[1].(*ast.Arg).List),
+             state, math,
+         )
+     default:
+         panic("invalid sup")
+     }
+
+     thickness := state.Backend().UnderlineThickness(state.Font, state.DPI)
+
+     // determine the height of the body, add a little extra to it so
+     // it doesn't seem too cramped.
+     height := body.Height() - body.Shift() + 5*thickness
+     depth := body.Depth() + body.Shift()
+     // Used purely for correct spacing.
+     check := tex.AutoHeightChar(`|`, height, depth, state, 0)
+     height = check.Height() - check.Shift()
+     depth = check.Depth() + check.Shift()
+
+     // put a little extra space to the left and right of the body
+     padded := tex.HListOf([]tex.Node{
+         tex.HBox(2 * thickness),
+         body,
+         tex.HBox(2 * thickness),
+     }, true)
+     rhs := tex.VListOf([]tex.Node{
+         tex.HRule(state, 0),
+         tex.NewGlue("fill"),
+         padded,
+     })
+
+     // stretch the glue between the HRule and the body
+     const additional = false
+     rhs.VPack(height+(state.Font.Size*state.DPI)/(100*12), additional, depth)
+
+     // Add the exponent and shift it up above the body.
+     exponent = tex.HBox(check.Width() * 0.5)
+
+     vl := tex.VListOf([]tex.Node{
+         tex.HListOf([]tex.Node{
+                         exponent,
+         }, true),
+     })
+     vl.SetShift(-height * 0.6)
+
+     hl := tex.HListOf([]tex.Node{
+         rhs,
+         // negative kerning to put root over tick
+         tex.NewKern(-check.Width() * 0.5),
+         vl,
+     }, true)
+
+     return hl
+ }
 
 func handleSymbol(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
 	pos := int(node.Pos())
