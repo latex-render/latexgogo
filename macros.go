@@ -324,6 +324,7 @@ func (p *parser) addBuiltinMacros() {
 		//
 		`\overline`:     builtinMacro("A"),
 		`\operatorname`: builtinMacro("A"),
+		`\pow`:        builtinMacro("AA"),
 	}
 
 	// add all known UTF-8 symbols
