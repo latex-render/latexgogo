@@ -332,6 +332,8 @@ var (
 		//
 		`\overline`:     builtinMacro("A"),
 		`\operatorname`: builtinMacro("A"),
+		`\pow`:        builtinMacro("AA"),
+
 	}
 )
 
