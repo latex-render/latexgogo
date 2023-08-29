@@ -5,6 +5,7 @@
 package latex // import "github.com/go-latex/latex"
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -45,7 +46,10 @@ func (p *parser) parse() (ast.Node, error) {
 	var nodes ast.List
 	for p.s.Next() {
 		tok := p.s.Token()
-		node := p.parseNode(tok)
+		node, err := p.parseNode(tok)
+		if err != nil {
+			return nil, err
+		}
 		if node == nil {
 			continue
 		}
@@ -62,23 +66,24 @@ func (p *parser) next() token.Token {
 	return p.s.tok
 }
 
-func (p *parser) expect(v rune) {
+func (p *parser) expect(v rune) error {
 	p.next()
 	if p.s.tok.Text != string(v) {
-		panic(fmt.Errorf("expected %q, got %q", v, p.s.tok.Text))
+		return fmt.Errorf("expected %q, got %q", v, p.s.tok.Text)
 	}
+	return nil
 }
 
-func (p *parser) parseNode(tok token.Token) ast.Node {
+func (p *parser) parseNode(tok token.Token) (ast.Node, error) {
 	switch tok.Kind {
 	case token.Comment:
-		return nil
+		return nil, nil
 	case token.Macro:
 		return p.parseMacro(tok)
 	case token.Word:
-		return p.parseWord(tok)
+		return p.parseWord(tok), nil
 	case token.Number:
-		return p.parseNumber(tok)
+		return p.parseNumber(tok), nil
 	case token.Symbol:
 		switch tok.Text {
 		case "$":
@@ -88,38 +93,38 @@ func (p *parser) parseNode(tok token.Token) ast.Node {
 		case "_":
 			return p.parseSub(tok)
 		default:
-			return p.parseSymbol(tok)
+			return p.parseSymbol(tok), nil
 		}
 	case token.Lbrace:
 		switch p.state {
 		case mathState:
 			return p.parseMathLbrace(tok)
 		default:
-			panic("not implemented")
+			return nil, errors.New("lbrace unMathState not implemented")
 		}
 	case token.Other:
 		switch tok.Text {
 		default:
-			panic("not implemented: " + tok.String())
+			return nil, errors.New("not implemented: " + tok.String())
 		}
 	case token.Space:
 		switch p.state {
 		case mathState:
-			return nil
+			return nil, nil
 		default:
-			return p.parseSymbol(tok)
+			return p.parseSymbol(tok), nil
 		}
 
 	case token.Lparen, token.Rparen,
 		token.Lbrack, token.Rbrack:
-		return p.parseSymbol(tok)
+		return p.parseSymbol(tok), nil
 
 	default:
-		panic(fmt.Errorf("impossible: %v (%v)", tok, tok.Kind))
+		return nil, fmt.Errorf("impossible: %v (%v)", tok, tok.Kind)
 	}
 }
 
-func (p *parser) parseMathExpr(tok token.Token) ast.Node {
+func (p *parser) parseMathExpr(tok token.Token) (ast.Node, error) {
 	state := p.state
 	p.state = mathState
 	defer func() {
@@ -139,9 +144,9 @@ func (p *parser) parseMathExpr(tok token.Token) ast.Node {
 	case `\[`:
 		end = `\]`
 	case `\begin`:
-		panic("not implemented")
+		return nil, errors.New("begin not implemeneted")
 	default:
-		panic(fmt.Errorf("opening math-expression delimiter %q not supported", tok.Text))
+		return nil, fmt.Errorf("opening math-expression delimiter %q not supported", tok.Text)
 	}
 
 loop:
@@ -151,7 +156,10 @@ loop:
 			math.Right = p.s.tok.Pos
 			break loop
 		default:
-			node := p.parseNode(p.s.tok)
+			node, err := p.parseNode(p.s.tok)
+			if err != nil {
+				return nil, err
+			}
 			if node == nil {
 				continue
 			}
@@ -159,17 +167,17 @@ loop:
 		}
 	}
 
-	return math
+	return math, nil
 }
 
-func (p *parser) parseMacro(tok token.Token) ast.Node {
+func (p *parser) parseMacro(tok token.Token) (ast.Node, error) {
 	name := tok.Text
 	macro, ok := p.macros[name]
 	if !ok {
-		panic("unknown macro " + name)
+		return nil, errors.New("unknown macro " + name)
 		//return nil
 	}
-	return macro.parseMacro(p)
+	return macro.parseMacro(p), nil
 }
 
 func (p *parser) parseWord(tok token.Token) ast.Node {
@@ -186,7 +194,7 @@ func (p *parser) parseNumber(tok token.Token) ast.Node {
 	}
 }
 
-func (p *parser) parseMacroArg(macro *ast.Macro) {
+func (p *parser) parseMacroArg(macro *ast.Macro) error {
 	var arg ast.Arg
 	p.expect('{')
 	arg.Lbrace = p.s.tok.Pos
@@ -198,7 +206,10 @@ loop:
 			arg.Rbrace = p.s.tok.Pos
 			break loop
 		default:
-			node := p.parseNode(p.s.tok)
+			node, err := p.parseNode(p.s.tok)
+			if err != nil {
+				return err
+			}
 			if node == nil {
 				continue
 			}
@@ -206,12 +217,13 @@ loop:
 		}
 	}
 	macro.Args = append(macro.Args, &arg)
+	return nil
 }
 
-func (p *parser) parseOptMacroArg(macro *ast.Macro) {
+func (p *parser) parseOptMacroArg(macro *ast.Macro) error{
 	nxt := p.s.sc.Peek()
 	if nxt != '[' {
-		return
+		return nil
 	}
 
 	var opt ast.OptArg
@@ -226,7 +238,10 @@ loop:
 			opt.Rbrack = p.s.tok.Pos
 			break loop
 		default:
-			node := p.parseNode(p.s.tok)
+			node, err := p.parseNode(p.s.tok)
+			if err != nil {
+				return err
+			}
 			if node == nil {
 				continue
 			}
@@ -234,12 +249,13 @@ loop:
 		}
 	}
 	macro.Args = append(macro.Args, &opt)
+	return nil
 }
 
 func (p *parser) parseVerbatimMacroArg(macro *ast.Macro) {
 }
 
-func (p *parser) parseSup(tok token.Token) ast.Node {
+func (p *parser) parseSup(tok token.Token) (ast.Node, error) {
 	hat := &ast.Sup{
 		HatPos: tok.Pos,
 	}
@@ -254,7 +270,10 @@ func (p *parser) parseSup(tok token.Token) ast.Node {
 			case token.Rbrace:
 				break loop
 			default:
-				node := p.parseNode(p.s.tok)
+				node, err := p.parseNode(p.s.tok)
+				if err != nil {
+					return nil, err
+				}
 				if node == nil {
 					continue
 				}
@@ -263,13 +282,17 @@ func (p *parser) parseSup(tok token.Token) ast.Node {
 		}
 		hat.Node = list
 	default:
-		hat.Node = p.parseNode(p.next())
+		var err error
+		hat.Node, err = p.parseNode(p.next())
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return hat
+	return hat, nil
 }
 
-func (p *parser) parseSub(tok token.Token) ast.Node {
+func (p *parser) parseSub(tok token.Token) (ast.Node, error) {
 	sub := &ast.Sub{
 		UnderPos: tok.Pos,
 	}
@@ -284,7 +307,10 @@ func (p *parser) parseSub(tok token.Token) ast.Node {
 			case token.Rbrace:
 				break loop
 			default:
-				node := p.parseNode(p.s.tok)
+				node, err := p.parseNode(p.s.tok)
+				if err != nil {
+					return nil, err
+				}
 				if node == nil {
 					continue
 				}
@@ -293,10 +319,12 @@ func (p *parser) parseSub(tok token.Token) ast.Node {
 		}
 		sub.Node = list
 	default:
-		sub.Node = p.parseNode(p.next())
+		var err error
+		sub.Node, err = p.parseNode(p.next())
+		return nil, err
 	}
 
-	return sub
+	return sub, nil
 }
 
 func (p *parser) parseSymbol(tok token.Token) ast.Node {
@@ -306,7 +334,7 @@ func (p *parser) parseSymbol(tok token.Token) ast.Node {
 	}
 }
 
-func (p *parser) parseMathLbrace(tok token.Token) ast.Node {
+func (p *parser) parseMathLbrace(tok token.Token) (ast.Node, error) {
 	var (
 		lst    ast.List
 		ldelim = tok.Kind
@@ -317,7 +345,7 @@ func (p *parser) parseMathLbrace(tok token.Token) ast.Node {
 	)
 
 	if rdelim == token.Invalid {
-		panic("impossible: no matching right-delim for: " + tok.String())
+		return nil, errors.New("impossible: no matching right-delim for: " + tok.String())
 	}
 
 loop:
@@ -326,12 +354,15 @@ loop:
 		case rdelim:
 			break loop
 		default:
-			node := p.parseNode(p.s.tok)
+			node, err := p.parseNode(p.s.tok)
+			if err != nil {
+				return nil, err
+			}
 			if node == nil {
 				continue
 			}
 			lst = append(lst, node)
 		}
 	}
-	return lst
+	return lst, nil
 }
