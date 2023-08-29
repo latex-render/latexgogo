@@ -216,7 +216,7 @@ func handleSup(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
      height := body.Height() - body.Shift() + 5*thickness
      depth := body.Depth() + body.Shift()
      // Used purely for correct spacing.
-     check := tex.AutoHeightChar(|, height, depth, state, 0)
+     check := tex.AutoHeightChar(`|`, height, depth, state, 0)
      height = check.Height() - check.Shift()
      depth = check.Depth() + check.Shift()
      // put a little extra space to the left and right of the body
