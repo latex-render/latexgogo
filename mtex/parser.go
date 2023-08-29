@@ -268,6 +268,8 @@ func handleSymbol(p *parser, node ast.Node, state tex.State, math bool) tex.Node
 		sym = node.Text
 	case *ast.Literal:
 		sym = node.Text
+	case *ast.Sup:
+         	sym = "^"
 	default:
 		panic("invalid ast Node")
 	}
