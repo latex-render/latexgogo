@@ -170,6 +170,8 @@ func (p *parser) handler(name string) handler {
 		return handlerFunc(handleSqrt)
 	case `\overline`:
 		return handlerFunc(handleOverline)
+	case `^`:
+         	return handlerFunc(handleSymbol)
 	case `\pow`:
          	return handlerFunc(handleSup)
 	}
