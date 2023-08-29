@@ -200,11 +200,11 @@ func handleSup(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
      switch len(macro.Args) {
      case 2:
          exponent = p.handleNode(
-             ast.List(macro.Args[0].(*ast.Arg).List),
+             ast.List(macro.Args[1].(*ast.Arg).List),
              state, math,
          )
          body = p.handleNode(
-             ast.List(macro.Args[1].(*ast.Arg).List),
+             ast.List(macro.Args[0].(*ast.Arg).List),
              state, math,
          ).(*tex.HList)
      default:
