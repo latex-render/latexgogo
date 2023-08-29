@@ -5,20 +5,21 @@
 package mtex
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/go-latex/latex/ast"
 	"github.com/go-latex/latex/tex"
 )
 
-type handlerFunc func(p *parser, node ast.Node, state tex.State, math bool) tex.Node
+type handlerFunc func(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error)
 
-func (h handlerFunc) Handle(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func (h handlerFunc) Handle(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	return h(p, node, state, math)
 }
 
 type handler interface {
-	Handle(p *parser, node ast.Node, state tex.State, math bool) tex.Node
+	Handle(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error)
 }
 
 var (
@@ -339,22 +340,22 @@ var (
 
 type builtinMacro string
 
-func (m builtinMacro) Handle(p *parser, n ast.Node, state tex.State, math bool) tex.Node {
+func (m builtinMacro) Handle(p *parser, n ast.Node, state tex.State, math bool) (tex.Node, error) {
 	node := n.(*ast.Macro)
 	if m == "" {
-		return tex.NewChar(node.Name.Name, state, math)
+		return tex.NewChar(node.Name.Name, state, math), nil
 	}
 
 	for _, typ := range strings.ToLower(string(m)) {
 		switch typ {
 		case 'a':
-			panic("not implemented")
+			return nil, errors.New("a not implemented")
 		case 'o':
-			panic("not implemented")
+			return nil, errors.New("o not implemented")
 		case 'v':
-			panic("not implemented")
+			return nil, errors.New("v not implemented")
 		}
 	}
 
-	return nil
+	return nil, nil
 }

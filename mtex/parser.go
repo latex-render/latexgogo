@@ -5,6 +5,7 @@
 package mtex
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -69,7 +70,7 @@ type visitor struct {
 	math  bool
 }
 
-func (v *visitor) Visit(n ast.Node) ast.Visitor {
+func (v *visitor) Visit(n ast.Node) (ast.Visitor, error) {
 	switch n := n.(type) {
 	case ast.List:
 	case *ast.Symbol:
@@ -79,7 +80,11 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 			if h == nil {
 				panic("no handler for symbol [" + n.Text + "]")
 			}
-			v.nodes = append(v.nodes, h.Handle(v.p, n, v.state, v.math))
+			nn, err := h.Handle(v.p, n, v.state, v.math)
+			if err != nil {
+				return nil, err
+			}
+			v.nodes = append(v.nodes, nn)
 		default:
 			v.nodes = append(v.nodes, tex.NewChar(string(n.Text), v.state, v.math))
 		}
@@ -93,7 +98,11 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 		h := handlerFunc(handleSymbol)
 		for _, c := range n.Text {
 			n := &ast.Literal{Text: string(c)}
-			v.nodes = append(v.nodes, h.Handle(v.p, n, v.state, v.math))
+			nn, err := h.Handle(v.p, n, v.state, v.math)
+			if err != nil {
+				return nil, err
+			}
+			v.nodes = append(v.nodes, nn)
 		}
 
 	case *ast.MathExpr:
@@ -107,39 +116,47 @@ func (v *visitor) Visit(n ast.Node) ast.Visitor {
 		}
 		v.math = oldm
 		v.state.Font.Type = oldt
-		return nil
+		return nil, nil
 
 	case *ast.Macro:
 		if n.Name == nil {
-			panic("macro with nil identifier")
+			return nil, errors.New("macro with nil identifier")
 		}
 		macro := n.Name.Name
 		h := v.p.handler(macro)
 		if h == nil {
-			panic(fmt.Errorf("unknown macro %q", macro))
+			return nil, fmt.Errorf("unknown macro %q", macro)
 		}
-		v.nodes = append(v.nodes, h.Handle(v.p, n, v.state, v.math))
-		return nil
+		nn, err := h.Handle(v.p, n, v.state, v.math)
+		if err != nil {
+			return nil, err
+		}
+		v.nodes = append(v.nodes, nn)
+		return nil, nil
 	// Temperarily use macro until Sup is fully supported.
      	case *ast.Sup:
              h := v.p.handler(`\pow`)
              if h == nil {
-                 panic("no handler for symbol")
+               return nil, errors.New("no handler for symbol")
              }
-             v.nodes = append(v.nodes, h.Handle(v.p, n, v.state, true))
+			 nn, err := h.Handle(v.p, n, v.state, true)
+			 if err != nil {
+				 return nil, err
+			 }
+             v.nodes = append(v.nodes, nn)
 	case nil:
-		return v
+		return v, nil
 
 	default:
-		panic(fmt.Errorf("unknown ast node %T", n))
+		return nil, fmt.Errorf("unknown ast node %T", n)
 	}
-	return v
+	return v, nil
 }
 
-func (p *parser) handleNode(node ast.Node, state tex.State, math bool) tex.Node {
+func (p *parser) handleNode(node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	v := visitor{p: p, state: state, math: math}
 	ast.Walk(&v, node)
-	return tex.HListOf(v.nodes, true)
+	return tex.HListOf(v.nodes, true), nil
 }
 
 func (p *parser) handler(name string) handler {
@@ -191,25 +208,27 @@ func (p *parser) init() {
 	}
 }
 
-func handleSup(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleSup(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
  var (
          macro = node.(*ast.Macro)
          exponent  tex.Node
          body  *tex.HList
+		 body1 tex.Node
      )
      switch len(macro.Args) {
      case 2:
-         exponent = p.handleNode(
+         exponent, _ = p.handleNode(
              ast.List(macro.Args[1].(*ast.Arg).List),
              state, math,
          )
-         body = p.handleNode(
+         body1, _ = p.handleNode(
              ast.List(macro.Args[0].(*ast.Arg).List),
              state, math,
-         ).(*tex.HList)
+         )//.(*tex.HList)
      default:
-         panic("invalid sup")
+         return nil, errors.New("invalid sup")
      }
+	 body = body1.(*tex.HList)
      thickness := state.Backend().UnderlineThickness(state.Font, state.DPI)
      // determine the height of the body, add a little extra to it so
      // it doesn't seem too cramped.
@@ -253,10 +272,10 @@ func handleSup(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
          tex.NewKern(-check.Width() * 0.5),
          vl,
      }, true)
-     return hl
+     return hl, nil
  }
 
-func handleSymbol(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleSymbol(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	pos := int(node.Pos())
 	sym := ""
 	switch node := node.(type) {
@@ -271,7 +290,7 @@ func handleSymbol(p *parser, node ast.Node, state tex.State, math bool) tex.Node
 	case *ast.Sup:
          	sym = "^"
 	default:
-		panic("invalid ast Node")
+		return nil, errors.New("invalid ast Node")
 	}
 	ch := tex.NewChar(sym, state, math)
 	switch {
@@ -288,13 +307,13 @@ func handleSymbol(p *parser, node ast.Node, state tex.State, math bool) tex.Node
 			prev == "{" ||
 			symbols.LeftDelim.Has(prev)):
 			// binary operators at start of string should not be spaced
-			return ch
+			return ch, nil
 		default:
 			return tex.HListOf([]tex.Node{
 				p.makeSpace(state, 0.2),
 				ch,
 				p.makeSpace(state, 0.2),
-			}, true)
+			}, true), nil
 		}
 
 	case symbols.PunctuationSymbols.Has(sym):
@@ -304,16 +323,16 @@ func handleSymbol(p *parser, node ast.Node, state tex.State, math bool) tex.Node
 			if (pos > 0 && isdigit(p.expr[pos-1])) &&
 				(pos < len(p.expr)-1 && isdigit(p.expr[pos+1])) {
 				// do not space dots as decimal separators.
-				return ch
+				return ch, nil
 			}
 			return tex.HListOf([]tex.Node{
 				ch,
 				p.makeSpace(state, 0.2),
-			}, true)
+			}, true), nil
 		}
-		panic("not implemented")
+		return nil, errors.New("not implemented")
 	}
-	return ch
+	return ch, nil
 }
 
 var spaceWidth = map[string]float64{
@@ -332,7 +351,7 @@ var spaceWidth = map[string]float64{
 
 }
 
-func handleSpace(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleSpace(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	var (
 		width float64
 		ok    bool
@@ -343,26 +362,26 @@ func handleSpace(p *parser, node ast.Node, state tex.State, math bool) tex.Node 
 	case *ast.Macro:
 		width, ok = spaceWidth[node.Name.Name]
 	default:
-		panic(fmt.Errorf("invalid ast node %#v (%T)", node, node))
+		return nil, fmt.Errorf("invalid ast node %#v (%T)", node, node)
 	}
 	if !ok {
-		panic(fmt.Errorf("could not find a width for %#v (%T)", node, node))
+		return nil, fmt.Errorf("could not find a width for %#v (%T)", node, node)
 	}
 
-	return p.makeSpace(state, width)
+	return p.makeSpace(state, width), nil
 }
 
-func handleCustomSpace(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleCustomSpace(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	macro := node.(*ast.Macro)
 	arg := macro.Args[0].(*ast.Arg).List[0].(*ast.Literal).Text
 	val, err := strconv.ParseFloat(arg, 64)
 	if err != nil {
-		panic(fmt.Errorf("could not parse customspace: %+v", err))
+		return nil, fmt.Errorf("could not parse customspace: %+v", err)
 	}
-	return p.makeSpace(state, val)
+	return p.makeSpace(state, val), nil
 }
 
-func handleFunction(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleFunction(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	macro := node.(*ast.Macro)
 	state.Font.Type = "rm"
 	fun := macro.Name.Name[1:] // drop leading `\`
@@ -370,10 +389,10 @@ func handleFunction(p *parser, node ast.Node, state tex.State, math bool) tex.No
 	for _, c := range fun {
 		nodes = append(nodes, tex.NewChar(string(c), state, math))
 	}
-	return tex.HListOf(nodes, true)
+	return tex.HListOf(nodes, true), nil
 }
 
-func handleFrac(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleFrac(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	var (
 		macro     = node.(*ast.Macro)
 		thickness = state.Backend().UnderlineThickness(state.Font, state.DPI)
@@ -381,18 +400,18 @@ func handleFrac(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
 		denNode   = ast.List(macro.Args[1].(*ast.Arg).List)
 	)
 
-	num := p.handleNode(numNode, state, math)
-	den := p.handleNode(denNode, state, math)
+	num, _ := p.handleNode(numNode, state, math)
+	den, _ := p.handleNode(denNode, state, math)
 
 	// FIXME(sbinet): this should be infered from the context.
 	// ie: textStyle    when in $  $ environment.
 	//     displayStyle when in \[\] environment.
 	sty := textStyle
 
-	return p.genfrac("", "", thickness, sty, num, den, state)
+	return p.genfrac("", "", thickness, sty, num, den, state), nil
 }
 
-func handleDFrac(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleDFrac(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	var (
 		macro     = node.(*ast.Macro)
 		thickness = state.Backend().UnderlineThickness(state.Font, state.DPI)
@@ -400,13 +419,19 @@ func handleDFrac(p *parser, node ast.Node, state tex.State, math bool) tex.Node 
 		denNode   = ast.List(macro.Args[1].(*ast.Arg).List)
 	)
 
-	num := p.handleNode(numNode, state, math)
-	den := p.handleNode(denNode, state, math)
+	num, err := p.handleNode(numNode, state, math)
+	if err != nil {
+		return nil, err
+	}
+	den, err := p.handleNode(denNode, state, math)
+	if err != nil {
+		return nil, err
+	}
 
-	return p.genfrac("", "", thickness, displayStyle, num, den, state)
+	return p.genfrac("", "", thickness, displayStyle, num, den, state), nil
 }
 
-func handleTFrac(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleTFrac(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	var (
 		macro     = node.(*ast.Macro)
 		thickness = state.Backend().UnderlineThickness(state.Font, state.DPI)
@@ -414,23 +439,35 @@ func handleTFrac(p *parser, node ast.Node, state tex.State, math bool) tex.Node 
 		denNode   = ast.List(macro.Args[1].(*ast.Arg).List)
 	)
 
-	num := p.handleNode(numNode, state, math)
-	den := p.handleNode(denNode, state, math)
+	num, err := p.handleNode(numNode, state, math)
+	if err != nil {
+		return nil, err
+	}
+	den, err := p.handleNode(denNode, state, math)
+	if err != nil {
+		return nil, err
+	}
 
-	return p.genfrac("", "", thickness, textStyle, num, den, state)
+	return p.genfrac("", "", thickness, textStyle, num, den, state), nil
 }
 
-func handleBinom(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleBinom(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	var (
 		macro   = node.(*ast.Macro)
 		numNode = ast.List(macro.Args[0].(*ast.Arg).List)
 		denNode = ast.List(macro.Args[1].(*ast.Arg).List)
 	)
 
-	num := p.handleNode(numNode, state, math)
-	den := p.handleNode(denNode, state, math)
+	num, err := p.handleNode(numNode, state, math)
+	if err != nil {
+		return nil, err
+	}
+	den, err := p.handleNode(denNode, state, math)
+	if err != nil {
+		return nil, err
+	}
 
-	return p.genfrac("(", ")", 0, textStyle, num, den, state)
+	return p.genfrac("(", ")", 0, textStyle, num, den, state), nil
 }
 
 func (p *parser) genfrac(ldelim, rdelim string, rule float64, style mathStyleKind, num, den tex.Node, state tex.State) tex.Node {
@@ -478,32 +515,33 @@ func (p *parser) genfrac(ldelim, rdelim string, rule float64, style mathStyleKin
 	return box
 }
 
-func handleSqrt(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleSqrt(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	var (
 		macro = node.(*ast.Macro)
 		root  tex.Node
+		body1 tex.Node
 		body  *tex.HList
 	)
 	switch len(macro.Args) {
 	case 2:
-		root = p.handleNode(
+		root, _ = p.handleNode(
 			ast.List(macro.Args[0].(*ast.OptArg).List),
 			state, math,
 		)
-		body = p.handleNode(
+		body1, _ = p.handleNode(
 			ast.List(macro.Args[1].(*ast.Arg).List),
 			state, math,
-		).(*tex.HList)
+		)//.(*tex.HList)
 	case 1:
 		// ok
-		body = p.handleNode(
+		body1, _ = p.handleNode(
 			ast.List(macro.Args[0].(*ast.Arg).List),
 			state, math,
-		).(*tex.HList)
+		)//.(*tex.HList)
 	default:
 		panic("invalid sqrt")
 	}
-
+	body = body1.(*tex.HList)
 	thickness := state.Backend().UnderlineThickness(state.Font, state.DPI)
 
 	// determine the height of the body, add a little extra to it so
@@ -554,15 +592,17 @@ func handleSqrt(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
 		rhs,
 	}, true)
 
-	return hl
+	return hl, nil
 }
 
-func handleOverline(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
+func handleOverline(p *parser, node ast.Node, state tex.State, math bool) (tex.Node, error) {
 	macro := node.(*ast.Macro)
-	body := p.handleNode(
+	body1, _ := p.handleNode(
 		ast.List(macro.Args[0].(*ast.Arg).List),
 		state, math,
-	).(*tex.HList)
+	)//.(*tex.HList)
+
+	body := body1.(*tex.HList)
 
 	thickness := state.Backend().UnderlineThickness(state.Font, state.DPI)
 
@@ -581,7 +621,7 @@ func handleOverline(p *parser, node ast.Node, state tex.State, math bool) tex.No
 	rhs.VPack(height+(state.Font.Size*state.DPI)/(100*12), additional, depth)
 
 	hl := tex.HListOf([]tex.Node{rhs}, true)
-	return hl
+	return hl, nil
 }
 
 func (p *parser) makeSpace(state tex.State, percentage float64) *tex.Kern {

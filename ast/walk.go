@@ -10,7 +10,7 @@ import "fmt"
 // If the result visitor w is not nil, Walk visits each of the children
 // of node with the visitor w, followed by a call of w.Visit(nil).
 type Visitor interface {
-	Visit(node Node) (w Visitor)
+	Visit(node Node) (w Visitor, err error)
 }
 
 // Walk traverses an AST in depth-first order: It starts by calling
@@ -19,7 +19,7 @@ type Visitor interface {
 // w for each of the non-nil children of node, followed by a call of
 // w.Visit(nil).
 func Walk(v Visitor, node Node) {
-	if v = v.Visit(node); v == nil {
+	if v, _ = v.Visit(node); v == nil {
 		return
 	}
 
@@ -71,11 +71,11 @@ func walkNodes(v Visitor, nodes []Node) {
 
 type inspector func(Node) bool
 
-func (f inspector) Visit(node Node) Visitor {
+func (f inspector) Visit(node Node) (Visitor, error) {
 	if f(node) {
-		return f
+		return f, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // Inspect traverses an AST in depth-first order: It starts by calling
