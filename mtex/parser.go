@@ -199,29 +199,26 @@ func handleSup(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
      )
      switch len(macro.Args) {
      case 2:
-         body = p.handleNode(
+         exponent = p.handleNode(
              ast.List(macro.Args[0].(*ast.Arg).List),
              state, math,
-         ).(*tex.HList)
-         exponent = p.handleNode(
+         )
+         body = p.handleNode(
              ast.List(macro.Args[1].(*ast.Arg).List),
              state, math,
-         )
+         ).(*tex.HList)
      default:
          panic("invalid sup")
      }
-
      thickness := state.Backend().UnderlineThickness(state.Font, state.DPI)
-
      // determine the height of the body, add a little extra to it so
      // it doesn't seem too cramped.
      height := body.Height() - body.Shift() + 5*thickness
      depth := body.Depth() + body.Shift()
      // Used purely for correct spacing.
-     check := tex.AutoHeightChar(`|`, height, depth, state, 0)
+     check := tex.AutoHeightChar(|, height, depth, state, 0)
      height = check.Height() - check.Shift()
      depth = check.Depth() + check.Shift()
-
      // put a little extra space to the left and right of the body
      padded := tex.HListOf([]tex.Node{
          tex.HBox(2 * thickness),
@@ -233,28 +230,29 @@ func handleSup(p *parser, node ast.Node, state tex.State, math bool) tex.Node {
          tex.NewGlue("fill"),
          padded,
      })
-
      // stretch the glue between the HRule and the body
      const additional = false
      rhs.VPack(height+(state.Font.Size*state.DPI)/(100*12), additional, depth)
-
-     // Add the exponent and shift it up above the body.
-     exponent = tex.HBox(check.Width() * 0.5)
-
+     // add the root and shift it upward so it is above the tick.
+     switch exponent {
+     case nil:
+         exponent = tex.HBox(check.Width() * 0.5)
+     default:
+         exponent.Shrink()
+         exponent.Shrink()
+     }
      vl := tex.VListOf([]tex.Node{
-         tex.HListOf([]tex.Node{
-                         exponent,
+     tex.HListOf([]tex.Node{
+         exponent,
          }, true),
      })
      vl.SetShift(-height * 0.6)
-
      hl := tex.HListOf([]tex.Node{
          rhs,
          // negative kerning to put root over tick
          tex.NewKern(-check.Width() * 0.5),
          vl,
      }, true)
-
      return hl
  }
 
