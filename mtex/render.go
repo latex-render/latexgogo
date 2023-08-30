@@ -37,9 +37,9 @@ func Render(dst Renderer, expr string, size, dpi float64, fonts *ttf.Fonts) erro
 	var sh tex.Ship
 	sh.Call(0, 0, box.(tex.Tree))
 
-	w := box.Width()
-	h := box.Height()
-	d := box.Depth()
+	w := box.Width() + 200
+	h := box.Height() + 200
+	d := box.Depth() + 200
 
 	err = dst.Render(w/72, math.Ceil(h+math.Max(d, 0))/72, dpi, canvas)
 	if err != nil {
